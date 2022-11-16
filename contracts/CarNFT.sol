@@ -12,19 +12,15 @@ contract CarNFT is ERC721URIStorage, Ownable {
     using Counters for Counters.Counter;
     Counters.Counter private _tokenIds;
     struct Car {
-        string Brand;
-        string Color;
-        string Matriculation;
-        uint originalvalue;
+        string brand;
+        string color;
+        string matriculation;
+        uint originalValue;
         uint deposit;
+        uint mileage;
         bool exists;
     }
-    struct TXinfo {//renting aggrement between vendor and customer
-      uint price;
-      uint month;
-    }
     mapping(uint => Car) public cars;
-    mapping(uint => TXinfo) public txinfos;
     uint nCars = 0;
     address vendor;
 
@@ -43,67 +39,46 @@ contract CarNFT is ERC721URIStorage, Ownable {
 
     function exists(uint carId) public returns (bool) 
     {
-      return cars[carId].exists;
+        return cars[carId].exists;
     }
 
     function addCar (
         string memory tokenURI,
-        string memory Brand,
-        string memory Color,
-        string memory Matriculation,
-        uint originalvalue) public onlyOwner returns (uint256)
+        string memory brand,
+        string memory color,
+        string memory matriculation,
+        uint originalValue,
+        uint mileage) public onlyOwner returns (uint256)
     {
         _tokenIds.increment();
         uint256 newItemId = _tokenIds.current();
-        cars[newItemId]=Car(Brand,Color,Matriculation,originalvalue,originalvalue/20,true);
+        cars[newItemId]=Car(brand,color,matriculation,originalValue,originalValue/20,mileage,true);
         mintNFT(vendor,tokenURI,newItemId);
         ++nCars;
         return newItemId;
     }
 
     function getCarByIndex(uint idx) public view returns (string memory){
-      return cars[idx].Brand;
-    }
-
-    function leasing(uint carid, address customer, uint month, uint monthlypayment) public
-    {
-        Leased(carid,month);
-        _transfer(vendor, customer, carid);
-        txinfos[carid].price=monthlypayment;
-    }
-
-    function fetchMonthlyPayment(uint carid) public view returns (uint) 
-    {
-      return txinfos[carid].price;
-    }
-    function fetchMonthRemain(uint carid) public view returns (uint) 
-    {
-      return txinfos[carid].month;
-    }
-
-    function Leased(uint carid, uint month) public
-    {
-        txinfos[carid].month=month;
-    }
-
-    function Returned(uint id) public
-    {
-        txinfos[id].month=0;
-    }
-    
-    function Extend(uint id,uint monthlypay) public
-    {
-        txinfos[id].month=txinfos[id].month+1;
-        txinfos[id].price=monthlypay;
+        return cars[idx].brand;
     }
 
     function getDeposit(uint carId) public returns(uint)
     {
-      return cars[carId].deposit;
+        return cars[carId].deposit;
     }
 
     function getNumberOfCars() public view returns (uint)
     {
-      return nCars;
+        return nCars;
+    }
+
+    function getMonthlyPayment(uint carId, uint yearsofexp, uint months, uint mileCap) public view returns (uint) {
+        uint weighed_originalvalue=2*cars[carId].originalValue;//dominate, 5 year rent worth a car
+        uint weighed_mileage=cars[carId].mileage/100>1?1:cars[carId].mileage/100;//older car gets cheaper with a limit
+        uint weighed_yearofexp=yearsofexp>=5?90:100;//experience driver get discount
+        uint weighed_milecap=10*mileCap<1?10*mileCap:100;//wear and tear with a limit
+        uint weighed_month=months>=12?90:100;//rent a year or more get discount
+        uint payment=(weighed_originalvalue*yearsofexp*months+weighed_milecap-weighed_mileage)/100;
+        return payment;
     }
 }
