@@ -6,6 +6,8 @@
     import "@openzeppelin/contracts/access/Ownable.sol";
     import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
     import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+    import "hardhat/console.sol";
+
     contract CarNFT is ERC721URIStorage, Ownable {
 
     
@@ -56,8 +58,19 @@
         }
 
         
-        function ListCars(uint id) public view returns (string memory){
-            return cars[id].Brand;
+        function listCars() public view {
+            for (uint i = 1; i <= _tokenIds.current(); ++i) {
+                console.log("Id %s:", i);
+                console.log("Model: %s %s %s ", cars[i].Brand, cars[i].Color, cars[i].Matriculation);
+                console.log("Price: %s", cars[i].Originalvalue);
+                if(available(i)){
+                    console.log("Available");
+                }
+                else {
+                    console.log("Not Available");
+                }
+                
+            }
         }
 
         function getCarBrandByID(uint id) public view returns (string memory){
