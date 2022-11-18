@@ -25,7 +25,12 @@
         uint start;
         uint balance;
         bool available;
+        address customer;
+        int status;// 0 waiting for vendor decision; 1 accepted; -1 refutsed
         }
+
+        mapping(address => mapping(uint => uint)) public balanceReceived;
+        mapping(address => mapping(uint => uint)) public lockedUntil;
         mapping(uint => Car) public cars;
         mapping(uint => TXinfo) public txinfos;
         address vendor;
@@ -77,13 +82,21 @@
             return cars[id].Brand;
         }
 
-        function leasingCar(uint id, address customer, uint month, uint monthlypayment) private 
+        function proposeLease(uint id, address customer, uint month, uint monthlypayment) private 
         {
-            _transfer(vendor, customer, id);
             txinfos[id].price=monthlypayment;
             txinfos[id].start=block.timestamp;
             txinfos[id].month=month;
+            txinfos[id].customer=customer;
             txinfos[id].available=false;
+            txinfos[id].status=0;
+        }
+
+        function leasingCar(uint id) private 
+        {
+            _transfer(vendor, txinfos[id].customer, id);
+            txinfos[id].start=block.timestamp;
+            txinfos[id].status=1;
         }
 
         function returningCar(uint id) private 
@@ -141,13 +154,30 @@
             require(available(id), "Car does not available");
             require(milecap<20000,"Mileage cap maximum 1000 miles");
             require(month<60,"Contract duration maximun 60 months");
-            address buyer = msg.sender;
+            address customer = msg.sender;
             uint monthlypayment=getMonthlyPayment(originalvalu, mileage, yearofex, milecap, month);
-            //leasingCar{value:monthlypayment}(id, buyer, month, monthlypayment);
-            require(msg.value >= monthlypayment, "Not enough either for monthly payment");
-            (bool sent, bytes memory data) = payable(vendor).call{value: msg.value}("");
-            require(sent, "Failed to send ether");
-            leasingCar(id, buyer, month, monthlypayment);
+            //leasingCar{value:monthlypayment}(id, customer, month, monthlypayment);
+            require(msg.value >= 4 * monthlypayment, "Not enough either for monthly payment");//3month deposit, 1 month payment
+            balanceReceived[customer][id] += msg.value;
+            lockedUntil[customer][id] = block.timestamp + 3 days; //if vendor does agree the deal in 3 days, customer can take back the money
+            //(bool sent, bytes memory data) = payable(vendor).call{value: msg.value}("");
+            //require(sent, "Failed to send ether");
+            //leasingCar(id, customer, month, monthlypayment);
+            proposeLease(id, customer, month, monthlypayment);//waiting for decision
+        }
+
+        function Decision(uint id, bool decision) public onlyOwner {
+            if(decision){//accept, take the rent, lease the car.
+                payable(vendor).transfer(txinfos[id].price);
+                leasingCar(id); 
+                txinfos[id].balance+=txinfos[id].price;//add one month rent to balance
+                balanceReceived[txinfos[id].customer][id]-=txinfos[id].price;//remaining is deposit 
+            }
+            else{//return deposit and first month rent, Vendor pays gas if refuse, fair exchange 
+                
+                payable(txinfos[id].customer).transfer(balanceReceived[txinfos[id].customer][id]);
+                txinfos[id].available=true;
+            }
         }
 
         function Pay (uint id) public payable{
@@ -158,6 +188,14 @@
             require(sent, "Failed to send ether");
             paying(id, monthlypayment);
         }
+
+        function withdrawMoney(uint id) public { // customer decide to withdraw money before vendor decision
+            require(balanceReceived[msg.sender][id]>0);//you are the one who locked the money
+            require(block.timestamp>lockedUntil[msg.sender][id]);//after 3 days no response from vendor or vendor refused
+            address payable to = payable(msg.sender);
+            to.transfer(balanceReceived[msg.sender][id]);
+        }
+
 
         function ExtendYear(uint id) public{
             require(msg.sender == ownerOf(id),"Not yours to Extend");
@@ -179,3 +217,32 @@
         }
 
     }
+
+
+contract timeLock {
+
+    uint256 lockTime = 1 days;
+
+    struct locked{
+        uint256 expire;
+        uint256 amount;
+    }
+
+    mapping(address => locked) users;
+
+    function lockEther() public payable {
+        require(msg.value>0);
+        locked storage userInfo = users[msg.sender];
+        userInfo.expire = block.timestamp + lockTime;
+        userInfo.amount = msg.value;
+    }
+
+    function withdraw() public {
+        require(block.timestamp>=users[msg.sender].expire);
+        locked storage userInfo = users[msg.sender];
+        uint256 value = userInfo.amount;
+        userInfo.expire = 0;
+        userInfo.amount = 0;
+        payable(msg.sender).transfer(value);
+    }
+}
