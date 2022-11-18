@@ -19,20 +19,20 @@
             string Matriculation;
             uint Originalvalue;
         }
+
         struct TXinfo {//renting aggrement between vendor and customer
         uint price;
-        uint month;
+        uint totalMonth;
         uint start;
         uint balance;
         bool available;//available for renting
         address customer;
-        int status;// 0 waiting for vendor decision or uninitialized; 1 accepted; -1 refutsed
+        uint status;// 0 uninitialized; 1 waiting for vendor decision, 2 accepted; 3 refused
         }
 
-        mapping(address => mapping(uint => uint)) public balanceReceived;
-        mapping(address => mapping(uint => uint)) public lockedUntil;
-        mapping(uint => Car) public cars;
-        mapping(uint => TXinfo) public txinfos;
+        mapping(address => mapping(uint => uint)) private balanceReceived;
+        mapping(uint => Car) private cars;
+        mapping(uint => TXinfo) private txinfos;
         address vendor;
         constructor() ERC721("MyNFT", "NFT") {
         vendor=msg.sender;
@@ -41,8 +41,6 @@
         function mintNFT(address recipient, string memory tokenURI, uint256 newItemId)
             private onlyOwner
         {
-            //_tokenIds.increment();
-            //uint256 newItemId = _tokenIds.current();
             _mint(recipient, newItemId);
             _setTokenURI(newItemId, tokenURI);
         }
@@ -74,86 +72,67 @@
                 else {
                     console.log("Not Available");
                 }
-                
             }
         }
 
-        function listDealsWaiting() public view {
+        function listDealsWaiting() public onlyOwner view {
             for (uint i = 1; i <= _tokenIds.current(); ++i) {
-                if(txinfos[i].status==0 && txinfos[i].available==false){
+                if(txinfos[i].status==1){
                     console.log("Id %s:", i);
-                    console.log("TXinfo: %s %s %s ", txinfos[i].price, txinfos[i].month, txinfos[i].start);
+                    console.log("TXinfo: %s %s %s ", txinfos[i].price, txinfos[i].totalMonth, txinfos[i].customer);
                 } 
             }
         }
-
-        //function getCarBrandByID(uint id) public view returns (string memory){
-        //    return cars[id].Brand;
-        //}
 
         function proposeLease(uint id, address customer, uint month, uint monthlypayment) private 
         {
             txinfos[id].price=monthlypayment;
             txinfos[id].start=block.timestamp;
-            txinfos[id].month=month;
+            txinfos[id].totalMonth=month;
             txinfos[id].customer=customer;
             txinfos[id].available=false;
-            txinfos[id].status=0;
+            txinfos[id].status=1;
         }
 
         function leasingCar(uint id) private 
         {
             _transfer(vendor, txinfos[id].customer, id);
             txinfos[id].start=block.timestamp;
-            txinfos[id].status=1;
+            txinfos[id].status=2;
         }
 
         function returningCar(uint id) private 
         {
-            _transfer(ownerOf(id),vendor, id);
+            _transfer(ownerOf(id),vendor, id);//NFT
             txinfos[id].price=0;
             txinfos[id].start=0;
-            txinfos[id].month=0;
+            txinfos[id].totalMonth=0;
+            txinfos[id].status=0;
             txinfos[id].available=true;
         }
 
-        function paying(uint id, uint monthlypayment) public
+        function fetchMonthlyPayment(uint id) private view returns (uint) 
         {
-            txinfos[id].balance=txinfos[id].balance+monthlypayment;
-        }
-
-        function fetchMonthlyPayment(uint id) public view returns (uint) 
-        {
-        return txinfos[id].price;
-        }
-        function fetchMonthRemain(uint id) public view returns (uint) 
-        {
-        return txinfos[id].month;
+            return txinfos[id].price;
         }
         
-        function Extend(uint id,uint monthlypay) public
-        {
-            txinfos[id].month=txinfos[id].month+1;
-            txinfos[id].price=monthlypay;
-        }
-
-        function exists(uint id) public view returns (bool) 
+        function exists(uint id) private view returns (bool) 
         {
             return id <= _tokenIds.current();
         }
 
-        function available(uint id) public view returns (bool) 
+        function available(uint id) private view returns (bool) 
         {
             return txinfos[id].available;
         }
 
-        function getMonthlyPayment( uint id, uint mileage, uint yearofex, uint milecap, uint month) public returns(uint)
+        function getMonthlyPayment( uint id, uint mileage, uint yearofex, uint milecap, uint month) public view returns(uint)
         {
-            uint weighted_originalvalue=cars[id].Originalvalue*10**18/100;//dominate, 5 year rent worth a car
-            uint weighted_mileage=3*weighted_originalvalue*mileage/100/100000;//older car gets cheaper with a limit
+            uint weighted_originalvalue=cars[id].Originalvalue*10**18/100;// 1% of the original value is the baseline
+            uint weighted_mileage=3*weighted_originalvalue*mileage/100/100000;//older car gets cheaper
             uint weighted_yearofex=yearofex>=7?weighted_originalvalue/10:0;//experience driver get discount
-            uint weighted_milecap=weighted_originalvalue/10*milecap/5000;//wear and tear with a limit
-            uint weighted_month=5*weighted_originalvalue*(month/12)/100;//rent a year or more get discount
+            uint weighted_milecap=weighted_originalvalue/10*milecap/5000;//wear and tear
+            uint weighted_month=5*weighted_originalvalue*(month/12)/100;//rent longer duration is cheaper
             uint payment=weighted_originalvalue-weighted_yearofex-weighted_month+weighted_milecap-weighted_mileage;
             return payment;
         }
@@ -161,23 +140,18 @@
         function Rent (uint id, uint mileage, uint yearofex, uint milecap, uint month) public payable{
             require(exists(id), "Car does not exists");
             require(available(id), "Car does not available");
-            require(milecap<20000,"Mileage cap maximum 1000 miles");
+            require(milecap<500000,"Mileage cap maximum 500000 miles");
             require(month<60,"Contract duration maximun 60 months");
             address customer = msg.sender;
             uint monthlypayment=getMonthlyPayment(id, mileage, yearofex, milecap, month);
-            //leasingCar{value:monthlypayment}(id, customer, month, monthlypayment);
             require(msg.value >= 4 * monthlypayment, "Not enough either for monthly payment");//3month deposit, 1 month payment
             balanceReceived[customer][id] += msg.value;
-            lockedUntil[customer][id] = block.timestamp + 3 days; //if vendor does agree the deal in 3 days, customer can take back the money
-            //(bool sent, bytes memory data) = payable(vendor).call{value: msg.value}("");
-            //require(sent, "Failed to send ether");
-            //leasingCar(id, customer, month, monthlypayment);
-            proposeLease(id, customer, month, monthlypayment);//waiting for decision
+            proposeLease(id, customer, month, monthlypayment);//waiting for vendor decision
         }
 
         function Decision(uint id, bool decision) public onlyOwner {
-            require(txinfos[id].status==0&&txinfos[id].available==false,"not waiting for decision");
-            if(decision){//accept, take the rent, lease the car.
+            require(txinfos[id].status==1,"not waiting for decision");
+            if(decision){//accept the deal, take the first month payment rent, lease the car.
                 payable(vendor).transfer(txinfos[id].price);
                 leasingCar(id); 
                 txinfos[id].balance+=txinfos[id].price;//add one month rent to balance
@@ -189,19 +163,19 @@
             }
         }
 
-//fix this
         function Pay (uint id) public payable{
             require(exists(id), "Car does not exists");
+            require(!available(id), "Car does not rented");
             uint monthlypayment=fetchMonthlyPayment(id);
             require(msg.value >= monthlypayment, "Not enough either for monthly payment");
-            (bool sent, bytes memory data) = payable(vendor).call{value: msg.value}("");
+            (bool sent,) = payable(vendor).call{value: msg.value}("");
             require(sent, "Failed to send ether");
-            paying(id, monthlypayment);
+            txinfos[id].balance+=msg.value;
         }
 
-        function withdrawMoney(uint id) public { // customer decide to withdraw money before vendor decision
+        function withdraw(uint id) public { // customer decide to withdraw money before vendor decision
             require(balanceReceived[msg.sender][id]>0,"You have no locked fund");//you are the one who locked the money
-            //require(block.timestamp>lockedUntil[msg.sender][id],"Wait at least 3 days to withdraw");//after 3 days no response from vendor or vendor refused
+            require(txinfos[id].status==1,"Can only withdraw before vender decision");
             address payable to = payable(msg.sender);
             to.transfer(balanceReceived[msg.sender][id]);
             txinfos[id].available=true;
@@ -213,22 +187,27 @@
 
         function ExtendYear(uint id) public {
             require(msg.sender == ownerOf(id),"Not yours to Extend");
-            txinfos[id].month += 12;
-            recomputePrice();
+            txinfos[id].totalMonth += 12;
+            recomputePrice(id);
         }
 
-        function clientTerminate (uint id) public{
+        function clientTerminate (uint id) public{//client terminate before deal complete lose deposit
             require(msg.sender == ownerOf(id) , "Only client can terminate here");
+            uint monthPassed=(block.timestamp-txinfos[id].start)/2592000;//30-day month
+            bool dealcompeleted=monthPassed>=txinfos[id].totalMonth;
+            console.log("passed %s",monthPassed);
+            console.log("passed %s",txinfos[id].totalMonth);
+            if(dealcompeleted){
+                payable(msg.sender).transfer(balanceReceived[msg.sender][id]);
+            }
             returningCar(id);
         }
 
-        function vendorTerminate (uint id) public{
+        function vendorTerminate (uint id) public{//vendor terminate only when payment are not met
             require(msg.sender == vendor , "Only vendor can terminate here");
-            uint timelaps=block.timestamp-txinfos[id].start;
-            require(txinfos[id].balance<timelaps/2592000*txinfos[id].price);//balance not enough to cover payment, vender can terminate
-            //(bool sent, bytes memory data) = payable(nft.ownerOf(id)).call{value: fromdeposit}("");
+            uint monthPassed=(block.timestamp-txinfos[id].start)/2592000;
+            require(txinfos[id].balance<monthPassed*txinfos[id].price,"Can only terminate if payment not enough");//balance not enough to cover payment
             returningCar(id);
         }
-
     }
 
