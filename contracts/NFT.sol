@@ -189,6 +189,7 @@
             }
         }
 
+//fix this
         function Pay (uint id) public payable{
             require(exists(id), "Car does not exists");
             uint monthlypayment=fetchMonthlyPayment(id);
@@ -206,11 +207,14 @@
             txinfos[id].available=true;
         }
 
+        function recomputePrice(uint id) private {
+            txinfos[id].price -= cars[id].Originalvalue*10**18/2000;
+        }
 
-        function ExtendYear(uint id) public{
+        function ExtendYear(uint id) public {
             require(msg.sender == ownerOf(id),"Not yours to Extend");
-            uint monthlypayment=fetchMonthlyPayment(id);
-            Extend(id,monthlypayment);
+            txinfos[id].month += 12;
+            recomputePrice();
         }
 
         function clientTerminate (uint id) public{
