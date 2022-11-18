@@ -78,9 +78,18 @@
             }
         }
 
-        function getCarBrandByID(uint id) public view returns (string memory){
-            return cars[id].Brand;
+        function listDealsWaiting() public view {
+            for (uint i = 1; i <= _tokenIds.current(); ++i) {
+                if(txinfos[i].status==0 && txinfos[i].available==false){
+                    console.log("Id %s:", i);
+                    console.log("TXinfo: %s %s %s ", txinfos[i].price, txinfos[i].month, txinfos[i].start);
+                } 
+            }
         }
+
+        //function getCarBrandByID(uint id) public view returns (string memory){
+        //    return cars[id].Brand;
+        //}
 
         function proposeLease(uint id, address customer, uint month, uint monthlypayment) private 
         {
@@ -140,22 +149,28 @@
 
         function getMonthlyPayment( uint id, uint mileage, uint yearofex, uint milecap, uint month) public returns(uint)
         {
-            uint weighed_originalvalu=cars[id].Originalvalue/5;//dominate, 5 year rent worth a car
-            uint weighed_mileage=mileage/100>1?1:mileage/100;//older car gets cheaper with a limit
-            uint weighed_yearofex=yearofex>=5?9:10;//experience driver get discount
-            uint weighed_milecap=milecap/10<1?milecap/10:1;//wear and tear with a limit
-            uint weighed_month=month>=12?9:10;//rent a year or more get discount
-            uint payment= weighed_originalvalu * weighed_yearofex* weighed_month/100+weighed_milecap-weighed_mileage;
-            return payment;
+            uint weighed_originalvalu=cars[id].Originalvalue/5;//dominate, 5 year rent worth a car 7/5=1
+            uint weighed_mileage=mileage/50000>1?1:mileage/50000;//older car gets cheaper with a limit 12345/50000=0
+            uint weighed_yearofex=yearofex>=5?9:10;//experience driver get discount 3<5, return 10
+            uint weighed_milecap=milecap/10<1?milecap/100:1;//wear and tear with a limit 1234/10=123>1, so 1234/100=10
+            uint weighed_month=month>=12?9:10;//rent a year or more get discount 2<12, 10
+            uint payment= (weighed_originalvalu * weighed_yearofex* weighed_month/100+weighed_milecap-weighed_mileage)* 10**18;
+            console.log("Monthly Payment is %s", weighed_originalvalu);
+            console.log("Monthly Payment is %s", weighed_mileage);
+            console.log("Monthly Payment is %s", weighed_yearofex);
+            console.log("Monthly Payment is %s", weighed_milecap);
+            console.log("Monthly Payment is %s", weighed_month);
+            console.log("Monthly Payment is %s", payment);
+            return 2*10**17; //This is the Wei
         }
 
-        function Rent (uint id, uint originalvalu, uint mileage, uint yearofex, uint milecap, uint month) public payable{
+        function Rent (uint id, uint mileage, uint yearofex, uint milecap, uint month) public payable{
             require(exists(id), "Car does not exists");
             require(available(id), "Car does not available");
             require(milecap<20000,"Mileage cap maximum 1000 miles");
             require(month<60,"Contract duration maximun 60 months");
             address customer = msg.sender;
-            uint monthlypayment=getMonthlyPayment(originalvalu, mileage, yearofex, milecap, month);
+            uint monthlypayment=getMonthlyPayment(id, mileage, yearofex, milecap, month);
             //leasingCar{value:monthlypayment}(id, customer, month, monthlypayment);
             require(msg.value >= 4 * monthlypayment, "Not enough either for monthly payment");//3month deposit, 1 month payment
             balanceReceived[customer][id] += msg.value;
@@ -167,6 +182,7 @@
         }
 
         function Decision(uint id, bool decision) public onlyOwner {
+            require(txinfos[id].status==0&&txinfos[id].available==false,"not waiting for decision");
             if(decision){//accept, take the rent, lease the car.
                 payable(vendor).transfer(txinfos[id].price);
                 leasingCar(id); 
@@ -218,31 +234,3 @@
 
     }
 
-
-contract timeLock {
-
-    uint256 lockTime = 1 days;
-
-    struct locked{
-        uint256 expire;
-        uint256 amount;
-    }
-
-    mapping(address => locked) users;
-
-    function lockEther() public payable {
-        require(msg.value>0);
-        locked storage userInfo = users[msg.sender];
-        userInfo.expire = block.timestamp + lockTime;
-        userInfo.amount = msg.value;
-    }
-
-    function withdraw() public {
-        require(block.timestamp>=users[msg.sender].expire);
-        locked storage userInfo = users[msg.sender];
-        uint256 value = userInfo.amount;
-        userInfo.expire = 0;
-        userInfo.amount = 0;
-        payable(msg.sender).transfer(value);
-    }
-}
