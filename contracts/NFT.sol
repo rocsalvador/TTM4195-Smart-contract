@@ -24,9 +24,9 @@
         uint month;
         uint start;
         uint balance;
-        bool available;
+        bool available;//available for renting
         address customer;
-        int status;// 0 waiting for vendor decision; 1 accepted; -1 refutsed
+        int status;// 0 waiting for vendor decision or uninitialized; 1 accepted; -1 refutsed
         }
 
         mapping(address => mapping(uint => uint)) public balanceReceived;
@@ -149,19 +149,13 @@
 
         function getMonthlyPayment( uint id, uint mileage, uint yearofex, uint milecap, uint month) public returns(uint)
         {
-            uint weighed_originalvalu=cars[id].Originalvalue/5;//dominate, 5 year rent worth a car 7/5=1
-            uint weighed_mileage=mileage/50000>1?1:mileage/50000;//older car gets cheaper with a limit 12345/50000=0
-            uint weighed_yearofex=yearofex>=5?9:10;//experience driver get discount 3<5, return 10
-            uint weighed_milecap=milecap/10<1?milecap/100:1;//wear and tear with a limit 1234/10=123>1, so 1234/100=10
-            uint weighed_month=month>=12?9:10;//rent a year or more get discount 2<12, 10
-            uint payment= (weighed_originalvalu * weighed_yearofex* weighed_month/100+weighed_milecap-weighed_mileage)* 10**18;
-            console.log("Monthly Payment is %s", weighed_originalvalu);
-            console.log("Monthly Payment is %s", weighed_mileage);
-            console.log("Monthly Payment is %s", weighed_yearofex);
-            console.log("Monthly Payment is %s", weighed_milecap);
-            console.log("Monthly Payment is %s", weighed_month);
-            console.log("Monthly Payment is %s", payment);
-            return 2*10**17; //This is the Wei
+            uint weighted_originalvalue=cars[id].Originalvalue*10**18/100;//dominate, 5 year rent worth a car
+            uint weighted_mileage=3*weighted_originalvalue*mileage/100/100000;//older car gets cheaper with a limit
+            uint weighted_yearofex=yearofex>=7?weighted_originalvalue/10:0;//experience driver get discount
+            uint weighted_milecap=weighted_originalvalue/10*milecap/5000;//wear and tear with a limit
+            uint weighted_month=5*weighted_originalvalue*(month/12)/100;//rent a year or more get discount
+            uint payment=weighted_originalvalue-weighted_yearofex-weighted_month+weighted_milecap-weighted_mileage;
+            return payment;
         }
 
         function Rent (uint id, uint mileage, uint yearofex, uint milecap, uint month) public payable{
@@ -190,7 +184,6 @@
                 balanceReceived[txinfos[id].customer][id]-=txinfos[id].price;//remaining is deposit 
             }
             else{//return deposit and first month rent, Vendor pays gas if refuse, fair exchange 
-                
                 payable(txinfos[id].customer).transfer(balanceReceived[txinfos[id].customer][id]);
                 txinfos[id].available=true;
             }
@@ -206,10 +199,11 @@
         }
 
         function withdrawMoney(uint id) public { // customer decide to withdraw money before vendor decision
-            require(balanceReceived[msg.sender][id]>0);//you are the one who locked the money
-            require(block.timestamp>lockedUntil[msg.sender][id]);//after 3 days no response from vendor or vendor refused
+            require(balanceReceived[msg.sender][id]>0,"You have no locked fund");//you are the one who locked the money
+            //require(block.timestamp>lockedUntil[msg.sender][id],"Wait at least 3 days to withdraw");//after 3 days no response from vendor or vendor refused
             address payable to = payable(msg.sender);
             to.transfer(balanceReceived[msg.sender][id]);
+            txinfos[id].available=true;
         }
 
 
