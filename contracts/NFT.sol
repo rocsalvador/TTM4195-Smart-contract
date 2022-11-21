@@ -200,6 +200,9 @@
             if(dealcompeleted){
                 payable(msg.sender).transfer(balanceReceived[msg.sender][id]);
             }
+            else {
+                payable(vendor).transfer(balanceReceived[msg.sender][id]);
+            }
             returningCar(id);
         }
 
@@ -207,6 +210,7 @@
             require(msg.sender == vendor , "Only vendor can terminate here");
             uint monthPassed=(block.timestamp-txinfos[id].start)/2592000;
             require(txinfos[id].balance<monthPassed*txinfos[id].price,"Can only terminate if payment not enough");//balance not enough to cover payment
+            payable(vendor).transfer(balanceReceived[ownerOf(id)][id]);
             returningCar(id);
         }
     }
